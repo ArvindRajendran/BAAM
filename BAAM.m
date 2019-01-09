@@ -14,6 +14,8 @@
 % ...
 %
 % Last modified:
+% - 2019-01-09, AK: Cleaned up the adsorption part of the code and the
+%                   performance indicators
 % - 2019-01-08, AK: Cleaned up the pressurization part of the code
 % - 2019-01-07, AK: Cleaned up the variable names, added a new input
 %                   structure and cleaned up the blowdown/evacuation part
@@ -33,7 +35,7 @@
 % - Changed deltaPressure from 0.0001 to 0.01
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [qA1, qA2, qA3, qA4, qA5, qA6,qB1, qB2, qB3, qB4, qB5, qB6, pspand,YALL1,qAfLPPd,qBfLPPd,qAffeed,qBffeed,YOUT]=BAAM(simInfo,adsInfo)
+function [qA1, qA2, qA3, qA4, qA5, qA6,qB1, qB2, qB3, qB4, qB5, qB6, pspand,outputBlowEvac,qAfLPPd,qBfLPPd,qAffeed,qBffeed,YOUT]=BAAM(simInfo,adsInfo)
 tic
 
 %% STARTUP FORMALITIES OF THE CODE
@@ -54,10 +56,12 @@ temperature = simInfo.temperature; % Feed temperature [K]
 pressureHigh = simInfo.pressureHigh; % High pressure [bar]
 pressureLow = simInfo.pressureLow; % Low pressure [bar]
 molFracFeed_A = simInfo.molFracFeed_A; % Feed mole fraction of component A [-]
+molarMass_A = simInfo.molarMass_A; % Molar mass of component A [g/mol]
 
 % UNIVERSAL CONSTANTS
 UNIVERSAL_GAS_CONSTANT = 8.314e-5; % Universal gas constant [(m3 bar)/(K mol)]
 UNIVERSAL_GAS_CONSTANT_JMK = 8.314; % Universal gas constant [J/mol K]
+JOULE_TO_KWH = 2.77778e-7; % Conversion from Joules to kWh
 
 % ISOTHERM PROPERTIES
 % Dual-site Langmuir model for a binary system is used in this version of
@@ -134,64 +138,114 @@ kinc=1;
 % simulateBlowdownEvacuation and obtain the pressure, molefraction of 
 % component A, solid loadings of A and B, total moles desorbed, moles of A 
 % and B desorbed and the energy consumption
-[YALL1]=simulateBlowdownEvacuation();
+% Matrix structure: [Pressure MoleFracA SolidLoadingA SolidLoadingB
+% MolesDesorbedTotal MolesDesorbedA MolesDesorbedB EnergyConsumption]
+outputBlowEvac = simulateBlowdownEvacuation();
 
 %%% TO VISHAL: Why do you even need the matrix from meshgrid? That thing
 %%% would slow the code down
 
 % Simulate the pressurization and adsorption steps. Loop over all the low
 % and intermediate pressures. 
-% Loop over all entire low pressure vector
+% Loop over entire low pressure vector
 for counterLow = 1:length(pressureLowVector)
     % Find the index (in the output of the simulateBlowdownEvacuation
     % function) of the low pressure that corresponds to the current low
     % pressure value in the loop. Have a tolerance of 10e-6 just in case.
-    pressureLowIndex = find(abs(YALL1(:,1)-pressureLowGrid(1,counterLow))<1e-6);
+    pressureLowIndex = find(abs(outputBlowEvac(:,1)-pressureLowGrid(1,counterLow))<1e-6);
     
     % Simulate the pressurization step starting from the low pressure with
     % the goal of reaching the high pressure. The input for this function
     % would be the low pressure and mole fraction at the end of the
-    % blowdown/evacuation step (YALL1(:,2) is the mole fraction)
-    [yAfLPP,~,qAfLPP, qBfLPP,NLPP] ...
-        = simulatePressurization(pressureLowVector(counterLow),YALL1(pressureLowIndex,2));
+    % blowdown/evacuation step (outputBlowEvac(:,2) is the mole fraction)
+    % outputPress - [MoleFracA SolidLoadingA SolidLoadingB MolesPressTotal]
+    outputPress = simulatePressurization(pressureLowVector(counterLow),outputBlowEvac(pressureLowIndex,2));
+
+    % Simulate the adsorption step starting from the final state of the
+    % pressurization step with the goal of feeding the column with gas at
+    % feed conditions to breakthrough the column. The input for this
+    % function would be the final state of the pressurization step
+    % (outputPress(1))
+    % outputAds - [molesAds_Total molesAds_Raffinate SolidLoadingA 
+    % SolidLoadingB]
+    outputAds = simulateAdsorption(outputPress(1));
     
-    %%%%%%%%%%%%% DONE TILL HERE %%%%%%%%%%%%%
-    
-    [Nfeed,Nwaste,~,qAffeed,qBffeed]=mass_feed_VSB(yAfLPP);
-    
+    % Loop over entire intermediate pressure vector
     for counterInter = 1:length(pressureInterVector)
-        if ~(isnan(pressureInterGrid(counterInter,counterLow)) ||  isnan(pressureLowGrid(1,counterLow)))
-            
-            if (pressureLowGrid(1,counterLow)==pressureLow)
-                qAfLPPd=qAfLPP;
-                qBfLPPd=qBfLPP;
+        %%% TO VISHAL: Why would the low pressure even be NaN???
+        if ~(isnan(pressureInterGrid(counterInter,counterLow)) ...
+                || isnan(pressureLowGrid(1,counterLow)))
+            if (pressureLowVector(counterLow) == pressureLow)
+                qAfLPPd = outputPress(1);
+                qBfLPPd = outputPress(2);
             end
+            % Find the index (in the output of the 
+            % simulateBlowdownEvacuation function) of the pressure that 
+            % corresponds to the current intermediate pressure value in the
+            % loop given the low pressure. Have a tolerance of 10e-6 just 
+            % in case.
+            pressureInterIndex = find(abs(outputBlowEvac(:,1)-pressureInterGrid(counterInter,counterLow))<1e-6);
+            % Get the number of moles desorbed till from the high pressure 
+            % to the intermediate pressure (from outputBlowEvac)
+            % Component A
+            molesHighToInter_A = outputBlowEvac(pressureInterIndex,6);
+            % Component B
+            molesHighToInter_B = outputBlowEvac(pressureInterIndex,7);
+            % Evaluate the number of moles desorbed from the intermediate
+            % pressure to the low pressure for component (from
+            % outputBlowEvac). This would be the difference of moles
+            % adorbed at the low pressure and intermediate pressure
+            % Component A
+            molesInterToLow_A = outputBlowEvac(pressureLowIndex,6)-outputBlowEvac(pressureInterIndex,6);
+            % Component B
+            molesInterToLow_B = outputBlowEvac(pressureLowIndex,7)-outputBlowEvac(pressureInterIndex,7);
             
+            % Calculate the performance indicators at the given low and
+            % intermediate pressure
+            % Purity [%] - Moles of component A desorbed from intermediate 
+            % to low pressure/Total moles desorbed from intermediate to low
+            % pressure
+            purityStep = (molesInterToLow_A/(molesInterToLow_A + molesInterToLow_B))*100;
+            % Recovery [%] - Moles of component A desorbed from 
+            % intermediate to low pressure/Moles fed into the column in the
+            % adsorption step of component A (outputAds(1)*molFracFeed_A): 
+            % outputAds(1) - molesAds_Total
+            recoveryStep = (molesInterToLow_A/(outputAds(1)*molFracFeed_A))*100;
+            % Energy consumption (Blowdown) [kWh/tonne CO2. evac] - Energy
+            % consumption (kWh) in the blowdown step per tonne of component
+            % A obtained in the evacuation step
+            % (energy consumption in simulateBlowdownEvacuation is given 
+            % in J, and 1 kWh = 2.77778e-7 J, and the molar mass is given 
+            % in g/mol and 1e-6 is for g -> tonne)
+            energyBlowdownStep = (outputBlowEvac(pressureInterIndex,8)*JOULE_TO_KWH)...
+                                        /(molesInterToLow_A*molarMass_A*1e-6);
+            % Energy consumption (Evacuation) [kWh/tonne CO2. evac] - 
+            % Energy consumption (kWh) in the evacuation step per tonne of 
+            % component A obtained in the evacuation step. The energy from
+            % the evacuation step is computed as the difference between the
+            % energy at low pressure and energy at intermediate pressure
+            % (energy consumption in simulateBlowdownEvacuation is given 
+            % in J, and 1 kWh = 2.77778e-7 J, and the molar mass is given 
+            % in g/mol and 1e-6 is for g -> tonne)
+            energyEvacuationStep = ((outputBlowEvac(pressureLowIndex,8)...
+                                    - outputBlowEvac(pressureInterIndex,8))*JOULE_TO_KWH)...
+                                    /(molesInterToLow_A*molarMass_A*1e-6);
+            % Total Energy consumption [kWh/tonne CO2. evac]
+            energyTotalStep = energyBlowdownStep+energyEvacuationStep;
             
-            inter=find(abs(YALL1(:,1)-pressureInterGrid(counterInter,counterLow))<10^(-6));
-            nAbd=YALL1(inter,6);
-            nBbd=YALL1(inter,7);
-            nAevc=YALL1(pressureLowIndex,6)-YALL1(inter,6);
-            nBevc=YALL1(pressureLowIndex,7)-YALL1(inter,7);
+            %%%%%%%% DONE TILL HERE %%%%%%%%
             
-            purity=(nAevc/(nAevc+nBevc))*100;
-            recovery=(nAevc/(Nfeed*molFracFeed_A))*100;
-            enerbd=(YALL1(inter,8)*2.77778e-7)/(nAevc*44*1e-6);
-            enerevc=((YALL1(pressureLowIndex,8)-YALL1(inter,8))*2.77778e-7)/(nAevc*44*1e-6);
-            enerT=enerbd+enerevc;
-            wc=(nAevc)/(columnVolume*(1-voidFraction));
-            PurP(counterInter,counterLow)=purity;
-            RecP(counterInter,counterLow)=recovery;
-            EnerP(counterInter,counterLow)=enerT;
-            WcP(counterInter,counterLow)=wc;
+            wc = (molesInterToLow_A)/(columnVolume*(1-voidFraction));
+            PurP(counterInter,counterLow) = purityStep;
+            RecP(counterInter,counterLow) = recoveryStep;
+            EnerP(counterInter,counterLow) = energyTotalStep;
+            WcP(counterInter,counterLow) = wc;
             
-            ncyclein=Nfeed;
-            ncycleout=(Nwaste-NLPP) + (nAbd+nBbd) + (nAevc+nBevc);
-            nTotalerr=((ncyclein-ncycleout)/ncycleout)*100;
-            YOUT(kinc,:)=[pressureLowGrid(1,counterLow) pressureInterGrid(counterInter,counterLow) purity recovery enerbd enerevc enerT wc nTotalerr];
-            kinc=kinc+1;
-            
-            %fprintf(fid,'%f  %s  %s  %s  %f  %s  %f  %s  %f  %s  %f  %s  %f  %s  %f  %s  %f  %s  %f  %s  %f\n',adsindex,',',Adsorbents,',',pressureLowGrid(1,counterLow),',',pressureInterGrid(counterInter,counterLow),',',purity,',',recovery,',',enerbd,',',enerevc,',',enerT,',',wc,',',nTotalerr);
+            ncyclein = outputAds(1);
+            ncycleout = (outputAds(2)-outputPress(4)) + (molesHighToInter_A+molesHighToInter_B) + (molesInterToLow_A+molesInterToLow_B);
+            nTotalerr = ((ncyclein-ncycleout)/ncycleout)*100;
+            YOUT(kinc,:) = [pressureLowGrid(1,counterLow) pressureInterGrid(counterInter,counterLow) purityStep recoveryStep energyBlowdownStep energyEvacuationStep energyTotalStep wc nTotalerr];
+            kinc = kinc+1;
             
         end
     end
@@ -218,9 +272,6 @@ pspand=pspand';
 
 
 
-%fclose(fid);
-
-
 YOUT(:,10)=sqrt(YOUT(:,3).^2 + YOUT(:,4).^2);
 
 inddis=find(YOUT(:,10)<110.3 & YOUT(:,10)>110.2);
@@ -240,8 +291,6 @@ else
     fprintf(fid,'%s%s%f%s%f%s%s%s%s\n',Adsorbents,',',temperature,',',maxdis,',','-',',','-');
     fclose(fid);
 end
-
-
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% AUXILLIARY FUNCTIONS
@@ -378,10 +427,9 @@ end
 	% simultaneously to determine the moles of gas required to pressurize
 	% the column and the mole fraction of component A at the end of the LPP
 	% step
-    function [molFracPress_A,massBalErrorPress,solidPhaseLoading_Press_Final_A,solidPhaseLoading_Press_Final_B,molesPress_Total]...
-            = simulatePressurization(pressureLowStep,molFracEvacStep)
-        % Define the options for the ode solver that would solve eq. 11/12 
-        % in the original manuscript
+    function outputPress = simulatePressurization(pressureLowStep,molFracEvacStep)
+        % Define the options for the solver that would solve eq. 11/12 in 
+        % the original manuscript
         options = optimoptions('fsolve','Display','off');
         % Solve eq. 11 and 12 to find the number of moles required to
         % pressurize the column back to the high pressure and to determine
@@ -403,67 +451,17 @@ end
         % to high pressure
         molesPress_Total = outSolverPress(2);
         
-        % Initial condition at the step
-        % Number of moles in the fluid phase
-        % Component A     
-        fluidMolesPressurization_Init_A = (pressureLowStep*molFracEvacStep...
-            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        % Component B
-        fluidMolesPressurization_Init_B = (pressureLowStep*(1-molFracEvacStep)...
-            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
         % Evaluate the solid phase loadings for both the components at the
-        % corresponding pressures and mole fractions at the conditions
-        % corresponding to the pressure and mole fraction at the inital
-        % time of the step
-        [solidPhaseLoading_Press_Init_A, solidPhaseLoading_Press_Init_B]...
-            = evaluateDSLIsotherm(pressureLowStep,molFracEvacStep);
-        % Number of moles in the solid phase
-        % Component A
-        solidMolesPressurization_Init_A = solidPhaseLoading_Press_Init_A*adsorbentMass;
-        % Component B
-        solidMolesPressurization_Init_B = solidPhaseLoading_Press_Init_B*adsorbentMass;
-        % Total moles in the solid and fluid phase
-        % Component A
-        totalMolesPressurization_Init_A = fluidMolesPressurization_Init_A + solidMolesPressurization_Init_A;
-        % Component B
-        totalMolesPressurization_Init_B = fluidMolesPressurization_Init_B + solidMolesPressurization_Init_B;
-        
-        % Final condition at the step
-        % Number of moles in the fluid phase
-        % Component A
-        fluidMolesPressurization_Final_A = (pressureHigh*molFracPress_A...
-            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        % Component B
-        fluidMolesPressurization_Final_B = (pressureHigh*(1-molFracPress_A)...
-            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        % Evaluate the solid phase loadings for both the components at the
-        % corresponding pressures and mole fractions at the conditions
-        % corresponding to the pressure and mole fraction at the end of the
+        % corresponding pressures and mole fractions at the end of the
         % step
         [solidPhaseLoading_Press_Final_A, solidPhaseLoading_Press_Final_B]...
             = evaluateDSLIsotherm(pressureHigh,molFracPress_A);
-        % Number of moles in the solid phase
-        % Component A
-        solidMolesPressurization_Final_A = solidPhaseLoading_Press_Final_A*adsorbentMass;
-        % Component B
-        solidMolesPressurization_Final_B = solidPhaseLoading_Press_Final_B*adsorbentMass;
-        % Total moles in the solid and fluid phase
-        % Component A
-        totalMolesPressurization_Final_A = fluidMolesPressurization_Final_A + solidMolesPressurization_Final_A;
-        % Component B
-        totalMolesPressurization_Final_B = fluidMolesPressurization_Final_B + solidMolesPressurization_Final_B;
-        
-        % Compute the total moles in the column initially and finally for
-        % the pressureization step to compute the mass balance error
-        % Total number of moles at the initial time of the step along with
-        % the moles for pressurization
-        molesPress_Init_Total = totalMolesPressurization_Init_A + (molesPress_Total*molFracPress_A)...
-                    + totalMolesPressurization_Init_B + (molesPress_Total*(1-molFracPress_A));
-        % Total number of moles at the final time of the step along with
-        % the moles for pressurization
-        molesPress_Final_Total = totalMolesPressurization_Final_A + totalMolesPressurization_Final_B;
-        % Compute the mass balance error
-        massBalErrorPress = abs(((molesPress_Init_Total-molesPress_Final_Total)/molesPress_Init_Total)*100);
+
+        % Prepare output matrix to be used in the successive steps (vector)
+        % Matrix structure: [MoleFracA SolidLoadingA SolidLoadingB
+        % MolesPressTotal]
+        outputPress = [molFracPress_A solidPhaseLoading_Press_Final_A...
+                        solidPhaseLoading_Press_Final_B molesPress_Total];
     end
 
     %% Function: solveEquationsPressurization
@@ -483,8 +481,7 @@ end
         fluidMolesPressurization_Init_B = (pressureLowStep*(1-molFracEvacStep)...
             *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
         % Evaluate the solid phase loadings for both the components at the
-        % corresponding pressures and mole fractions at the conditions
-        % corresponding to the pressure and mole fraction at the inital
+        % corresponding pressures and mole fractions at the inital
         % time of the step
         [solidPhaseLoading_Press_Init_A, solidPhaseLoading_Press_Init_B]...
             = evaluateDSLIsotherm(pressureLowStep,molFracEvacStep);
@@ -508,8 +505,7 @@ end
         fluidMolesPressurization_Final_B = (pressureHigh*(1-inSolverPress(1))...
             *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
         % Evaluate the solid phase loadings for both the components at the
-        % corresponding pressures and mole fractions at the conditions
-        % corresponding to the pressure and mole fraction at the end of the
+        % corresponding pressures and mole fractions at the end of the
         % step
         [solidPhaseLoading_Press_Final_A, solidPhaseLoading_Press_Final_B]...
             = evaluateDSLIsotherm(pressureHigh,inSolverPress(1));
@@ -536,75 +532,113 @@ end
             + (inSolverPress(2)*inSolverPress(1));
     end
 
-    %%
-    function [Nfeed,Nwaste,mbalfeederror,qAffeed,qBffeed]=mass_feed_VSB(yAfLPP)
-        
-        
-        
-        %options=optimset('Algorithm','Levenberg-Marquardt');
+    %% Function: simulateAdsorption
+	% simulateAdsorption - This function is a wrapper function that is
+	% used to simulate the adsorption step of the LPP cycle. The system
+	% of algaebric equations given by Eq. 13 and 14 are solved
+	% simultaneously to determine the moles of gas required to be fed 
+    % such that the gas breaks through and to determine the number of moles
+    % of raffinate that is obtained during the adsorption step
+    function outputAds = simulateAdsorption(molFracPressStep)
+        % Define the options for the solver that would solve eq. 13/14 in 
+        % the original manuscript
         options = optimoptions('fsolve','Display','off');
-        
-        zfeed=fsolve(@(x) feed_VSB(x,yAfLPP),[500 500],options);
-        
-        fAifeed=(pressureHigh*yAfLPP*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        fBifeed=(pressureHigh*(1-yAfLPP)*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        [qAifeed, qBifeed]=isotherm(pressureHigh,yAfLPP);
-        
-        NAifeed=fAifeed+(qAifeed*adsorbentMass);
-        NBifeed=fBifeed+(qBifeed*adsorbentMass);
-        
-        %Final
-        
-        fAffeed=(pressureHigh*molFracFeed_A*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        fBffeed=(pressureHigh*(1-molFracFeed_A)*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        [qAffeed, qBffeed]=isotherm(pressureHigh,molFracFeed_A);
-        
-        NAffeed=fAffeed+(qAffeed*adsorbentMass);
-        NBffeed=fBffeed+(qBffeed*adsorbentMass);
-        
-        
-        %fprintf('\n\n***Feed STEP***');
-        Nfeed=zfeed(1);
-        Nwaste=zfeed(2);
-        
-        Nfeedinitial=NAifeed + (Nfeed*molFracFeed_A) -(Nwaste*yAfLPP) + NBifeed + Nfeed*(1-molFracFeed_A)-Nwaste*(1-yAfLPP);
-        Nfeedfinal=NAffeed+NBffeed;
-        
-        mbalfeederror=abs(((Nfeedinitial-Nfeedfinal)/Nfeedinitial)*100);
-        
-        
+        % Solve eq. 13 and 14 to find the number of moles required for
+        % adsorption step and the number of moles of gas that leaves the
+        % column in the raffinate stream. The adsorption step is modeled as
+        % a plug that leaves the column with a mole fraction corresponding
+        % to the mole fraction at the end of the pressurization step
+        % Initial condition for the solver
+        % (1) - molesAds_Total; (2) - molesAds_Raffinate
+        inSolverAds0 = [500 500];
+        % Solve the system of algaebric equations
+        outSolverAds = fsolve(@(inSolverAds)...
+            solveEquationsAdsorption(inSolverAds,molFracPressStep),inSolverAds0,options);
+        % Initialize the output of the solver to new variables
+        % Number of moles of gas required in the adsorption step for the
+        % breakthrough
+        molesAds_Total = outSolverAds(1);
+        % Number of moles of gas that leaves as the raffinate product in
+        % the adsorption step
+        molesAds_Raffinate = outSolverAds(2);
+
+        % Evaluate the solid phase loadings for both the components at the
+        % corresponding pressures and mole fractions at the final
+        % time of the step
+        [solidPhaseLoading_Ads_Final_A, solidPhaseLoading_Ads_Final_B]...
+            = evaluateDSLIsotherm(pressureHigh,molFracFeed_A);
+        % Prepare output matrix to be used in the successive steps (vector)
+        % Matrix structure: [molesAds_Total molesAds_Raffinate 
+        % SolidLoadingA SolidLoadingB]
+        outputAds = [molesAds_Total molesAds_Raffinate...
+            solidPhaseLoading_Ads_Final_A solidPhaseLoading_Ads_Final_B];
     end
 
-    %%
-    function zfeed=feed_VSB(xfeed,yAfLPP)
+    %% Function: solveEquationsAdsorption
+	% solveEquationsAdsorption - This function contains the equation
+	% that is called by the function simulateAdsorption which would be
+	% used to determine the two quantities of interest for the adsorption
+	% step, namely (1) - molesAds_Total; and (2) - molesAds_Raffinate. 
+    % The output is in the vector outSolverPress
+    function outSolverAds = solveEquationsAdsorption(inSolverAds,molFracPressStep)
+        % Initial condition at the step
+        % Number of moles in the fluid phase
+        % Component A
+        fluidMolesAdsorption_Init_A = (pressureHigh*molFracPressStep...
+            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
+        % Component B
+        fluidMolesAdsorption_Init_B = (pressureHigh*(1-molFracPressStep)...
+            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
+        % Evaluate the solid phase loadings for both the components at the
+        % corresponding pressures and mole fractions at the initial time of
+        % the step
+        [solidPhaseLoading_Ads_Init_A, solidPhaseLoading_Ads_Init_B]...
+            = evaluateDSLIsotherm(pressureHigh,molFracPressStep);
+        % Number of moles in the solid phase
+        % Component A
+        solidMolesAdsorption_Init_A = solidPhaseLoading_Ads_Init_A*adsorbentMass;
+        % Component B
+        solidMolesAdsorption_Init_B = solidPhaseLoading_Ads_Init_B*adsorbentMass;
+        % Total moles in the solid and fluid phase
+        % Component A
+        totalMolesAdsorption_Init_A = fluidMolesAdsorption_Init_A + solidMolesAdsorption_Init_A;
+        % Component B
+        totalMolesAdsorption_Init_B = fluidMolesAdsorption_Init_B + solidMolesAdsorption_Init_B;
         
+        % Final condition at the step
+        % Number of moles in the fluid phase
+        % Component A
+        fluidMolesAdsorption_Final_A = (pressureHigh*molFracFeed_A...
+            *columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
+        % Component B
+        fluidMolesAdsorption_Final_B = (pressureHigh*(1-molFracFeed_A)*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
+        % Evaluate the solid phase loadings for both the components at the
+        % corresponding pressures and mole fractions at the end of the
+        % step
+        [solidPhaseLoading_Ads_Final_A, solidPhaseLoading_Ads_Final_B]...
+            = evaluateDSLIsotherm(pressureHigh,molFracFeed_A);
+        % Number of moles in the solid phase
+        % Component A
+        solidMolesAdsorption_Final_A = solidPhaseLoading_Ads_Final_A*adsorbentMass;
+        % Component B
+        solidMolesAdsorption_Final_B = solidPhaseLoading_Ads_Final_B*adsorbentMass;
+        % Total moles in the solid and fluid phase
+        % Component A
+        totalMolesAdsorption_Final_A = fluidMolesAdsorption_Final_A + solidMolesAdsorption_Final_A;
+        % Component B
+        totalMolesAdsorption_Final_B = fluidMolesAdsorption_Final_B + solidMolesAdsorption_Final_B;
         
-        
-        %xfeed(1) -> Nfeed
-        %xfeed(2) -> NWaste
-        
-        %Initial
-        
-        fAifeed=(pressureHigh*yAfLPP*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        fBifeed=(pressureHigh*(1-yAfLPP)*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        [qAifeed, qBifeed]=isotherm(pressureHigh,yAfLPP);
-        
-        NAiLPP=fAifeed+(qAifeed*adsorbentMass);
-        NBiLPP=fBifeed+(qBifeed*adsorbentMass);
-        
-        %Final
-        fAffeed=(pressureHigh*molFracFeed_A*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        fBfLPP=(pressureHigh*(1-molFracFeed_A)*columnVolume*voidFraction)/(UNIVERSAL_GAS_CONSTANT*temperature);
-        [qAffeed, qBffeed]=isotherm(pressureHigh,molFracFeed_A);
-        
-        NAffeed=fAffeed+(qAffeed*adsorbentMass);
-        NBffeed=fBfLPP+(qBffeed*adsorbentMass);
-        
-        %Overall Balance
-        
-        zfeed(1,1)=(NAiLPP+NBiLPP)-(NAffeed+NBffeed) +xfeed(1) -xfeed(2);
-        zfeed(2,1)=NAiLPP-NAffeed+(xfeed(1)*molFracFeed_A)-(xfeed(2)*yAfLPP);
-        
+        % Equations to be solved by the solver which involves the overall
+        % mass balance the component mass balance for component A. These
+        % two equations corresponds to Eq. 13 and 14 in the original
+        % manuscript
+        % Equation 13 in the original manuscript  
+        outSolverAds(1,1) = (totalMolesAdsorption_Init_A + totalMolesAdsorption_Init_B)...
+                   - (totalMolesAdsorption_Final_A + totalMolesAdsorption_Final_B) ...
+                   + inSolverAds(1) - inSolverAds(2);
+        % Equation 14 in the original manuscript  
+        outSolverAds(2,1) = totalMolesAdsorption_Init_A - totalMolesAdsorption_Final_A...
+                   + (inSolverAds(1)*molFracFeed_A) - (inSolverAds(2)*molFracPressStep);
     end
 
     %% Function: evaluateDSLIsotherm
