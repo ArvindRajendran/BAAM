@@ -11,9 +11,22 @@
 %          
 %
 % Purpose:
-% ...
+% The function BAAM simulates the batch adsorber analogue model proposed in
+% <Title of the paper, doi>. This code simulates a two component system
+% using the LPP cycle with the BAAM model. Component A is the component of
+% interest (CO2 in the original manuscript). This function generates two
+% outputs, namely a .mat file with the entire simulation result and a
+% simple .txt file called BAAM indicating whether the adsorbent satisfied
+% the constraints on purity/recovery and energy/working capacity
+% information.
+
+% For more information on how to run this function and to understand the
+% output from this function, please read the README.md file in the GIT 
+% repository.
 %
 % Last modified:
+% - 2018-01-12, AK: Finished major cleaning of the code and output
+%                   structure and first functioning verion of the code.
 % - 2019-01-09, AK: Cleaned up the adsorption part of the code and the
 %                   performance indicators
 % - 2019-01-08, AK: Cleaned up the pressurization part of the code
@@ -23,26 +36,46 @@
 % - 2019-01-06, AK: Introduced header for this file
 %
 % Input arguments:
-% - 
+% - simInfo:       Structure containing information for the simulation.
+%                  These generally do not depend on the adsorbent. This
+%                  contains pressure values, temperature, column
+%                  properties, etc.,
+% - adsInfo:       Structure containing information about the adsorbent.
+%                  This contains the adsorbent name, adsorbent density and
+%                  DSL parameters for component A and B. In the original
+%                  manuscript A is CO2 and B is N2.
+% - silentFlag:    Flag for turning off command window output.
 %
 % Output arguments:
-% - 
+% - BAAMOutput:    Structure containing output from the BAAM model. This
+%                  contains performance indicators, and output from each
+%                  step that was simulated.
 %
 % Comments:
 % - Hardcoded values need to be changed in case if the pressure ranges are
 % different (I have changed it from plow to phigh to be universal can be
 % changed back again. Search for harcoded and look at the original code)
-% - Changed deltaPressure from 0.0001 to 0.01
-% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [qA1, qA2, qA3, qA4, qA5, qA6,qB1, qB2, qB3, qB4, qB5, qB6, pspand,outputBlowEvac,qAfLPPd,qBfLPPd,qAffeed,qBffeed,YOUT]=BAAM(simInfo,adsInfo)
-tic
+function [BAAMOutput, qAfLPPd,qBfLPPd]=BAAM(simInfo,adsInfo,silentFlag)
+% START OF MAIN FUNCTION
+simulationStartTime = datetime('now');
+
+%% COMMAND OUTPUT WINDOW
+if ~silentFlag
+    disp('##########################################################################');
+    disp('                  BAAM - Batch Adsorber Analogue Model');
+    disp('        Developed by Laboratory of Advanced Seperation Processes');
+    disp('                     University Of Alberta, Canada');
+    disp('##########################################################################');
+    disp(' ');
+end
 
 %% STARTUP FORMALITIES OF THE CODE
 % ADSORBENT PROPERTIES
 adsName = adsInfo.adsorbentName; % Name of the adsorbent being simulated
 adsorbentMass = 1; % Mass of the adsorbent [kg]
-adsorbentDensity = simInfo.adsorbentDensity; % Particle Density [kg/m3]
+adsorbentDensity = adsInfo.adsorbentDensity; % Particle Density [kg/m3]
 
 % ADDITIONAL PROPERTIES
 voidFraction = simInfo.voidFraction; % Void fraction [-]
@@ -90,9 +123,14 @@ adsorptionEqbmConstSite1_B = adsorptionCoefficientSite1_B...
 adsorptionEqbmConstSite2_B = adsorptionCoefficientSite2_B...
     *exp(-internalEnergySite2_B/(UNIVERSAL_GAS_CONSTANT_JMK*temperature));  % Adsorption equilibrium constant for site 1 [m3/mol]
 
+% PLOTTING OPTIONS
+% Mole fraction vector to obtain the solid phase loading required for
+% plotting the plots similar to Fig. 3 in the original manuscript.
+molFracPlotting = simInfo.molFracPlotting;
+
 %% SOLVER DEFINITIONS/PRESSURE MATRIX
 % ODE SOLVER PROPERTIES
-deltaPressure = 0.01; % Length of discretized grid for pressure [bar]
+deltaPressure = 0.0001; % Length of discretized grid for pressure [bar]
 % Generate a pressure vector that spans from the high pressure to the low
 % pressure with a length of deltaPressure for the ode solver to be used in
 % the blowdown step
@@ -100,13 +138,12 @@ pressureVector=(pressureHigh:-deltaPressure:pressureLow)';
 
 % PRESSURE MATRIX
 % Create a pressure vector for the low pressure that spans a range from
-% low pressure (pressureLow) to 0.1 bar. The upper bound of the low
-% pressure vector is HARDCODED. The pressure vector is in bar.
-pressureLowVector = pressureLow:0.01:(pressureHigh - 0.01);
+% low pressure (pressureLow) to high pressure (pressureHigh).The pressure 
+% vector is in bar.
+pressureLowVector = pressureLow:0.001:(pressureHigh - 0.01);
 % Create a pressure vector for the intermediate pressure that spans a range
 % from low pressure (pressureLow+0.01 bar) to the high pressure
-% (pressureHigh - 0.01 bar). The bounds for the intermediate pressure
-% vector is HARDCODED. The pressure vector is in bar.
+% (pressureHigh - 0.01 bar).
 pressureInterVector = (pressureLow + 0.01):0.01:(pressureHigh - 0.01);
 % Generate a matrix with all combinations of low and intermediate pressures
 [pressureLowGrid, pressureInterGrid] = meshgrid(pressureLowVector,pressureInterVector);
@@ -128,10 +165,26 @@ for ii = 1:numRows
     end
 end
 
-%%%%%%%%%%%%%%%%%%% DONNO WHAT TO DO %%%%%%%%%%%%%%%%%%% 
-YOUT(1,1:9)=0; % For Printing the simulation output
-kinc=1;
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+% Initialize the performance indicators with a NaN matrix with 
+% length(pressureInterVector) rows and length(pressureLowVector) columns
+pressure.low = nan(length(pressureInterVector),length(pressureLowVector)); % Low pressure
+pressure.inter = nan(length(pressureInterVector),length(pressureLowVector)); % Intermediate pressure
+purity = nan(length(pressureInterVector),length(pressureLowVector)); % Purity
+recovery = nan(length(pressureInterVector),length(pressureLowVector)); % Recovery
+energyConsumption = nan(length(pressureInterVector),length(pressureLowVector)); % Energy consumption
+workingCapacity = nan(length(pressureInterVector),length(pressureLowVector)); % Working capacity
+massBalanceError = nan(length(pressureInterVector),length(pressureLowVector)); % Mass balance error
+distancePurityRecovery = nan(length(pressureInterVector),length(pressureLowVector)); % Purity/Recovery distance
+
+%% COMMAND OUTPUT WINDOW
+if ~silentFlag
+    fprintf(' --> Adsorbent = %s\n',adsName);
+    fprintf(' --> Temperature = %0.2f [K]\n',temperature);
+    fprintf(' --> High Pressure (PH) = %0.2f [bar]\n',pressureHigh);
+    fprintf(' --> Low Pressure (PL) = %0.2f [bar]\n',pressureLow);
+    fprintf(' --> Feed Mole Fraction (A) = %0.2f [s]\n',molFracFeed_A);
+    disp('- Simulation of BAAM is in progress... ');
+end
 
 %% RUN THE MODEL
 % Simulate the blowdown and the evacuation step using the function
@@ -175,6 +228,7 @@ for counterLow = 1:length(pressureLowVector)
         %%% TO VISHAL: Why would the low pressure even be NaN???
         if ~(isnan(pressureInterGrid(counterInter,counterLow)) ...
                 || isnan(pressureLowGrid(1,counterLow)))
+            %%% TO VISHAL: What are these things used for?
             if (pressureLowVector(counterLow) == pressureLow)
                 qAfLPPd = outputPress(1);
                 qBfLPPd = outputPress(2);
@@ -213,7 +267,8 @@ for counterLow = 1:length(pressureLowVector)
             recoveryStep = (molesInterToLow_A/(outputAds(1)*molFracFeed_A))*100;
             % Energy consumption (Blowdown) [kWh/tonne CO2. evac] - Energy
             % consumption (kWh) in the blowdown step per tonne of component
-            % A obtained in the evacuation step
+            % A obtained in the evacuation step (Eq. 17 in the original
+            % manuscript)
             % (energy consumption in simulateBlowdownEvacuation is given 
             % in J, and 1 kWh = 2.77778e-7 J, and the molar mass is given 
             % in g/mol and 1e-6 is for g -> tonne)
@@ -226,73 +281,195 @@ for counterLow = 1:length(pressureLowVector)
             % energy at low pressure and energy at intermediate pressure
             % (energy consumption in simulateBlowdownEvacuation is given 
             % in J, and 1 kWh = 2.77778e-7 J, and the molar mass is given 
-            % in g/mol and 1e-6 is for g -> tonne)
+            % in g/mol and 1e-6 is for g -> tonne). (Eq. 17 in the original
+            % manuscript)
             energyEvacuationStep = ((outputBlowEvac(pressureLowIndex,8)...
                                     - outputBlowEvac(pressureInterIndex,8))*JOULE_TO_KWH)...
                                     /(molesInterToLow_A*molarMass_A*1e-6);
             % Total Energy consumption [kWh/tonne CO2. evac]
             energyTotalStep = energyBlowdownStep+energyEvacuationStep;
-            
-            %%%%%%%% DONE TILL HERE %%%%%%%%
-            
-            wc = (molesInterToLow_A)/(columnVolume*(1-voidFraction));
-            PurP(counterInter,counterLow) = purityStep;
-            RecP(counterInter,counterLow) = recoveryStep;
-            EnerP(counterInter,counterLow) = energyTotalStep;
-            WcP(counterInter,counterLow) = wc;
-            
-            ncyclein = outputAds(1);
-            ncycleout = (outputAds(2)-outputPress(4)) + (molesHighToInter_A+molesHighToInter_B) + (molesInterToLow_A+molesInterToLow_B);
-            nTotalerr = ((ncyclein-ncycleout)/ncycleout)*100;
-            YOUT(kinc,:) = [pressureLowGrid(1,counterLow) pressureInterGrid(counterInter,counterLow) purityStep recoveryStep energyBlowdownStep energyEvacuationStep energyTotalStep wc nTotalerr];
-            kinc = kinc+1;
-            
-        end
+            % Working capacity [mol CO2/m3 of adsorbent] - defined as the
+            % number of moles of CO2 desorbed in the evaculation for a
+            % m3 of adsorbent
+            workingCapacityStep = (molesInterToLow_A)/(columnVolume*(1-voidFraction));
+            % Mass balance error for the entire cycle [%]. Moles of gas fed
+            % in is through the adsorption step, while the moles of gas out
+            % of the cycle is from the blowdown/evacuation step and the
+            % difference in the moles of gas fed to the pressurization step
+            % using the adsorption outlet.
+            % Moles of gas in
+            numMolesIn = outputAds(1);
+            % Moles of gas out
+            numMolesOut = (outputAds(2)-outputPress(4))...
+                            + (molesHighToInter_A + molesHighToInter_B)...
+                            + (molesInterToLow_A + molesInterToLow_B);
+            % Mass balance error
+            massBalanceErrorStep = ((numMolesIn - numMolesOut)/numMolesOut)*100;
+            % Eucledian distance of purity/recovery from origin (Eq. 22)
+            % which would be used to determine if the material can satisfy
+            % 95/90 purity recovery which comes from training the
+            % simplified model w.r.t the full scale model
+            if ~isempty(purityStep) && ~isempty(recoveryStep)
+                distancePurityRecoveryStep = sqrt(purityStep^2 + recoveryStep^2);
+            else
+                % If the purity or recovery is empty, initialize all the
+                % performance indicators and elements of the output
+                % structure to NaN.
+                purityStep = NaN;
+                recoveryStep = NaN;
+                energyTotalStep = NaN;
+                workingCapacityStep = NaN;
+                massBalanceErrorStep = NaN;
+                distancePurityRecoveryStep = NaN;
+            end
+        
+            % Prepare output structure with pressure, performance 
+            % indicators, the mass balance error and the distance of the
+            % purity/recovery curve from the origin
+            pressure.low(counterInter,counterLow) = pressureLowGrid(counterInter,counterLow); % Low pressure
+            pressure.inter(counterInter,counterLow) = pressureInterGrid(counterInter,counterLow); % High pressure
+            purity(counterInter,counterLow) = purityStep; % Purity (Eq. 15)
+            recovery(counterInter,counterLow) = recoveryStep; % Recovery (Eq. 16)
+            energyConsumption(counterInter,counterLow) = energyTotalStep; % Energy consumption (Eq. 17)
+            workingCapacity(counterInter,counterLow) = workingCapacityStep; % Working capacity (Eq. 18)
+            massBalanceError(counterInter,counterLow) = massBalanceErrorStep; % Mass balance error
+            distancePurityRecovery(counterInter,counterLow) = distancePurityRecoveryStep; % Purity/Recovery distance
+        end % End of performance indicator condition
+    end % End of intermediate pressure loop
+end % End of low pressure loop
+
+% Determine if the adsorbent being simulated satisfies the 95% purity and
+% 90% recovery constraint based on the model created using the MATLAB
+% Statistics and Machine Learning Toolbox (not shown here, but refer to
+% Section 5.1 in the original manuscript)
+% Find the indices that closely corresponds to the locus of the 95/90 curve
+% described in Section 5.1, which would aid in computing the minimum energy
+% described in Section 5.2. Even though from the model it is shown that the
+% locus would correspond to a distance of 110.25, points that fall between
+% 110.2 and 110.3 are taken here.
+indexDistance9590 = find(distancePurityRecovery > 110.2...
+                            & distancePurityRecovery < 110.3);
+% Find the maximum distance from the origin to the purity-recovery pareto
+% for a given adsorption
+maxDistancePurityRecovery = max(max(distancePurityRecovery));
+
+% Compute the minimum energy if the indexDistance9590 is not empty. Based
+% on that compute the minimum energy and the working capacity that would
+% correspond to the 95/90% purity/recovery. The minimum energy obtained is
+% from BAAM as well as from the full scale model, which in this case is 
+% obtained from Eq. 25 (see Section 5.2). Store the results thus obtained 
+% from BAAM into a .txt file for future use.
+if ~isempty(indexDistance9590)
+    % Boolean to save in the output to say whether purity/recovery
+    % constraints have been met or not.
+    satisfyPurityRecovery = 1;
+    % Get the minimum energy consumption from the simplified model and the
+    % corresponding index in the energyConsumption matrix.
+    [minEnergyBAAM, indexMinimumEnergyBAAM]...
+        = min(energyConsumption(indexDistance9590));
+    % Based on Eq. 25, compute the energy that could be obtained from the
+    % simplified model, but using the energy consumption from the BAAM 
+    minEnergyFullModel = 1.1446*minEnergyBAAM + 66.528;
+    % Get the working capacity corresponding to the minimum energy
+    % consumption from BAAM
+    workingCapacity_MinEnergy ...
+        = workingCapacity(indexDistance9590(indexMinimumEnergyBAAM));
+        
+    % Create a new file titled BAAM.txt if it does not exist in the current
+    % folder and create the header for the file.
+    if (exist('BAAM.txt','file') ~= 2)
+        fid = fopen('BAAM.txt', 'at');
+        fprintf(fid,'%s %s %s %s %s %s %s\n','Adsorbent','Temperature','MaximumDistance_Pu/Re',...
+            'Satisfy_Pu/Re','MinimumEnergy_BAAM', 'MinimumEnergy_FullModel','WorkingCapacity_BAAM_MinEnergy');
+        fclose(fid);
     end
-    
-end
-
-PurP(PurP==0)=NaN;
-PurPmax=PurP(:,1);
-RecP(RecP==0)=NaN;
-RecPmax=RecP(:,1);
-EnerP(EnerP==0)=NaN;
-WcP(WcP==0)=NaN;
-
-
-pspand=0:0.001:1;
-pspand=pspand';
-
-[qA1, qB1]=isotherm(pspand,0);
-[qA2, qB2]=isotherm(pspand,0.15);
-[qA3, qB3]=isotherm(pspand,0.30);
-[qA4, qB4]=isotherm(pspand,0.45);
-[qA5, qB5]=isotherm(pspand,0.75);
-[qA6, qB6]=isotherm(pspand,1);
-
-
-
-YOUT(:,10)=sqrt(YOUT(:,3).^2 + YOUT(:,4).^2);
-
-inddis=find(YOUT(:,10)<110.3 & YOUT(:,10)>110.2);
-maxdis=max(YOUT(:,10));
-
-if ~isempty(inddis)
-    YOUTdis(1:size(inddis,1),:)=YOUT(inddis(1:end,1),:);
-    [minenergy, indmine]=min(YOUTdis(:,7));
-    Fullenergy=(minenergy*1.1446) + 66.528;
-    wcminenergy=YOUTdis(indmine,8);
-    
-    fid = fopen('BAAM_Results.txt', 'at');
-    fprintf(fid,'%s%s%f%s%f%s%f%s%f%s%f\n',Adsorbents,',',temperature,',',maxdis,',',minenergy,',',Fullenergy,',',wcminenergy);
+    % Save the name of the adsorbent, temperature, distance, whether the
+    % purity/recovery constraints have been met or not, minimum energy from
+    % BAAM, full model and the working capacity at minimum energy. 
+    fid = fopen('BAAM.txt', 'at');
+    fprintf(fid,'%s %f %f %f %f %f %f\n',adsName,temperature,maxDistancePurityRecovery,...
+        satisfyPurityRecovery,minEnergyBAAM,minEnergyFullModel,workingCapacity_MinEnergy);
     fclose(fid);
 else
-    fid = fopen('BAAM_error.txt', 'at');
-    fprintf(fid,'%s%s%f%s%f%s%s%s%s\n',Adsorbents,',',temperature,',',maxdis,',','-',',','-');
+    % Boolean to save in the output to say whether purity/recovery
+    % constraints have been met or not. If it comes into this loop it means
+    % that there is no point which has a distance between 110.2 and 110.3
+    % in the purity/recovery curve from the origin.
+    satisfyPurityRecovery = 0;
+    % Create a new file titled BAAM.txt if it does not exist in the current
+    % folder and create the header for the file.
+    if (exist('BAAM.txt','file') ~= 2)
+        fid = fopen('BAAM.txt', 'at');
+        fprintf(fid,'%s %s %s %s %s %s %s\n','Adsorbent','Temperature','MaximumDistance_Pu/Re',...
+            'Satisfy_Pu/Re','MinimumEnergy_BAAM', 'MinimumEnergy_FullModel','WorkingCapacity_BAAM_MinEnergy');
+        fclose(fid);
+    end
+    % Save the name of the adsorbent, temperature, distance, whether the
+    % purity/recovery constraints have been met or not, minimum energy from
+    % BAAM, full model and the working capacity at minimum energy. In this
+    % case minimum energy from BAAM, full model and the working capacity at
+    % minimum energy does not exist.
+    fid = fopen('BAAM.txt', 'at');
+	fprintf(fid,'%s %f %f %f %s %s %s\n',adsName,temperature,maxDistancePurityRecovery,...
+        satisfyPurityRecovery,'-','-','-');
     fclose(fid);
 end
 
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Generate output which is the solid phase loadings at different mole
+% fractions for component A and B which would be later used for plotting
+% figures like the one shown in Fig. 3 in the original manuscript
+pressureForPlotting = 0:0.01:pressureHigh;
+% Calculate the solid phase loadings for all the mole fractions given as an
+% input by the user
+plotting = struct([]);
+for ii = 1:length(molFracPlotting)
+    plotting(ii).pressure = pressureForPlotting;
+    plotting(ii).moleFraction = molFracPlotting(ii);
+    [plotting(ii).solidPhaseLoading_A, plotting(ii).solidPhaseLoading_B]...
+        = evaluateDSLIsotherm (pressureForPlotting,molFracPlotting(ii));
+end
+
+% Get GIT commit ID and save it to the output Structure
+[status,cmdOut] = system('git rev-parse HEAD');
+% If command was successful
+if status == 0
+    % Save the first 7 characters of the GIT commit ID
+    commitId = cmdOut(1:7);
+end
+
+% Prepare the output structure
+BAAMOutput.commitId = commitId; % GIT commit ID
+BAAMOutput.adsInfo = adsInfo; % Adsorbent Info structure
+BAAMOutput.simInfo = simInfo; % Simulation Info structure
+BAAMOutput.outputBlowEvac = outputBlowEvac; % Output from simulateBlowEvac
+BAAMOutput.outputPress = outputPress; % Output from simulatePressurization
+BAAMOutput.outputAds = outputAds; % Output from simulateAdsorption
+BAAMOutput.pressure = pressure; % Pressure for model
+BAAMOutput.purity = purity; % Purity
+BAAMOutput.recovery = recovery; % Recovery
+BAAMOutput.energyConsumption = energyConsumption; % Energy Consumption
+BAAMOutput.workingCapacity = workingCapacity; % Working capacity
+BAAMOutput.massBalanceError = massBalanceError; % Mass balance error
+BAAMOutput.distancePurityRecovery = distancePurityRecovery; % Distance from origin to Pu/Re curve
+BAAMOutput.plotting = plotting; % Plotting data
+
+simulationStopTime = datetime('now');
+computationalTime = seconds(simulationStopTime-simulationStartTime);
+
+%% COMMAND OUTPUT WINDOW
+if ~silentFlag
+    disp('- Model simulation completed.')
+    disp('- Summary of the BAAM simulation results:')
+    fprintf(' --> Maximum distance (95/90 Pu/Re) = %0.2f [-]\n',maxDistancePurityRecovery);
+    fprintf(' --> Satisfy Constraints (1 - Yes, 0 - No) = %i\n',satisfyPurityRecovery);
+    fprintf(' --> Minimum Energy (BAAM) = %0.2f [kWh/tonne CO2]\n',minEnergyBAAM);
+    fprintf(' --> Minimum Energy (Full Model) = %0.2f [kWh/tonne CO2]\n',minEnergyFullModel);
+    fprintf(' --> Working Capacity (at minimum energy, BAAM) = %0.2f [mol CO2/m^3 ads.]\n',workingCapacity_MinEnergy);
+    fprintf(' --> Computational time: %2.1f [s].',computationalTime); fprintf('\n');
+    disp('##########################################################################');
+end
+% END OF MAIN FUNCTION
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% AUXILLIARY FUNCTIONS
     % These are functions that would be used by the main part of the 
     % simulator that would simulate the different steps of the different 
@@ -327,13 +504,13 @@ end
         % Initialize the total moles in the column, moles of A and B 
         % desorbed, and the energy consumption to zero vector
         % Total moles desorbed
-        molesDesorbed_Total = zeros(1,size(pressureBlowEvac,1));
+        molesDesorbed_Total = zeros(size(pressureBlowEvac,1),1);
         % Moles of component A desorbed
-        molesDesorbed_A = zeros(1,size(pressureBlowEvac,1));
+        molesDesorbed_A = zeros(size(pressureBlowEvac,1),1);
         % Moles of component B desorbed
-        molesDesorbed_B = zeros(1,size(pressureBlowEvac,1));
+        molesDesorbed_B = zeros(size(pressureBlowEvac,1),1);
         % Energy consumption in the desorption step
-        energyConsumptionDesorption = zeros(1,size(pressureBlowEvac,1));
+        energyConsumptionDesorption = zeros(size(pressureBlowEvac,1),1);
         
         % Loop over the pressure range to compute the quantities of
         % interest described above. This would simply translate into
@@ -675,5 +852,4 @@ end
         % Total solid phase loading of component B [mol/kg]
         solidPhaseLoadingLoc_B = solidPhaseLoadingSite1_B + solidPhaseLoadingSite2_B;
     end
-toc
 end
