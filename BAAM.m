@@ -25,6 +25,7 @@
 % repository.
 %
 % Last modified:
+% - 2018-01-13, AK: Added additional comment for discretization
 % - 2019-01-13, VS: Cosmetic changes incorporated
 % - 2019-01-12, AK: Finished major cleaning of the code and output
 %                   structure and first functioning verion of the code.
@@ -131,7 +132,9 @@ molFracPlotting = simInfo.molFracPlotting;
 
 %% SOLVER DEFINITIONS/PRESSURE MATRIX
 % ODE SOLVER PROPERTIES
-deltaPressure = 0.0001; % Length of discretized grid for pressure [bar]
+% Have a discretization step size small enough such that the results are
+% not influenced by the step size (0.001 seems to be fair value to use). 
+deltaPressure = 0.001; % Length of discretized grid for pressure [bar]
 % Generate a pressure vector that spans from the high pressure to the low
 % pressure with a length of deltaPressure for the ode solver to be used in
 % the blowdown step
