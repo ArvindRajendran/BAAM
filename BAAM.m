@@ -25,7 +25,8 @@
 % repository.
 %
 % Last modified:
-% - 2018-01-12, AK: Finished major cleaning of the code and output
+% - 2019-01-13, VS: Cosmetic changes incorporated
+% - 2019-01-12, AK: Finished major cleaning of the code and output
 %                   structure and first functioning verion of the code.
 % - 2019-01-09, AK: Cleaned up the adsorption part of the code and the
 %                   performance indicators
@@ -182,7 +183,7 @@ if ~silentFlag
     fprintf(' --> Temperature = %0.2f [K]\n',temperature);
     fprintf(' --> High Pressure (PH) = %0.2f [bar]\n',pressureHigh);
     fprintf(' --> Low Pressure (PL) = %0.2f [bar]\n',pressureLow);
-    fprintf(' --> Feed Mole Fraction (A) = %0.2f [s]\n',molFracFeed_A);
+    fprintf(' --> Feed Mole Fraction (A) = %0.2f [-]\n',molFracFeed_A);
     disp('- Simulation of BAAM is in progress... ');
 end
 
