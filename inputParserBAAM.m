@@ -11,20 +11,35 @@
 %          
 %
 % Purpose:
-% ...
+% This function is used to parse user data from BAAMInfo file which would
+% contain the simulation settings and adsorption properties entered by the
+% user. In case the file is not present, the function would generate a new
+% file called BAAMInfo with all the necessary fields. In case the user
+% needs more info, he/she can refer to the README file. 
 %
 % Last modified:
+% - 2019-01-25, AK: Minor cosmetic changes
 % - 2019-01-24, AK: Introduced header for this file
 %
 % Input arguments:
-% - 
+% - folder:         Parent directory of the BAAMInfo file. If nothing
+%                   specified then would look for the file in the current
+%                   folder
 %
 % Output arguments:
-% - 
+% - simInfo:       Structure containing information for the simulation.
+%                  These generally do not depend on the adsorbent. This
+%                  contains pressure values, temperature, column
+%                  properties, etc.,
+% - adsInfo:       Structure containing information about the adsorbent.
+%                  This contains the adsorbent name, adsorbent density and
+%                  DSL parameters for component A and B. In the original
+%                  manuscript A is CO2 and B is N2.
 %
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 function [simInfo,adsInfo] = inputParserBAAM(folder)
+    simInfo = []; adsInfo = [];
     % Determine folder (i.e., location of BAAMInfo)
     if nargin == 0
         folder = '.';
@@ -35,6 +50,9 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
     % fields an restart the code
     if fid <0
         fid = fopen([folder,filesep,'BAAMInfo'],'w');
+        fprintf(fid,'%% BATCH ADSORBER ANALOGUE MODEL INFO \n');
+        fprintf(fid,'%% Enter the simulation and adsorbent information here. \n');
+        fprintf(fid,'%% For more information regarding the fields below check the README file. \n\n');
         % Simulation info
         fprintf(fid,'%% I. SIMULATION INFO \n');
         fprintf(fid,'%% PROCESS INFO\n');
@@ -48,6 +66,8 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
         fprintf(fid,'pressureHigh = \n');
         fprintf(fid,'%% -> Low Pressure: pressureLow = [in bar]\n');
         fprintf(fid,'pressureLow = \n');
+        fprintf(fid,'%% -> Low Pressure Upper Bound for Simulation: pressureLowUpperBound = [in bar]\n');
+        fprintf(fid,'pressureLowUpperBound = \n');
         fprintf(fid,'%% -> Bed Void Fraction: voidFraction = [0-1]\n');
         fprintf(fid,'voidFraction = \n');
         fprintf(fid,'%% -> Adiabatic Constant of Gas: adiabaticConstant = [-]\n');
@@ -105,7 +125,7 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
         fprintf(fid,'%% -> Site 2, Adsorption Coefficient: adsorptionCoefficientSite2_B = [in m3/mol]\n');
         fprintf(fid,'adsorptionCoefficientSite2_B = \n');
         fprintf(fid,'%% -> Site 2, Internal Energy: internalEnergySite2_B = [in J/mol]\n');
-        fprintf(fid,'internalEnergySite2_B = \n');
+        fprintf(fid,'internalEnergySite2_B = ');
         
         % Close file and ask the user to fill in the required options
         fclose(fid);
@@ -115,24 +135,24 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
     elseif fid>0 % Parse BAAMInfo file
         % Load file contents
         expInfo = textscan(fid,'%s','delimiter','\n');expInfo = expInfo{1};
-        % Parse DB-related fields from BAAMInfo file
+        % Parse fields from BAAMInfo file
         for expLoop = 1:length(expInfo)
             locVal = strsplit(expInfo{expLoop},'=');
             if ~isempty(expInfo{expLoop})
                 if ~strcmp(locVal{1,1}(1),'%')
-                    % Extract values for all fields except the 'comments'
-                    % field
+                    % Extract values for all fields except the
+                    % 'molFracPlotting'
                     locVar = locVal{1};
                     locVal = locVal{2};
                     tempVar = genvarname(locVar,who);
                     if strcmpi(tempVar,'molFracPlotting')
-                        % minWavenumber - change the string to a vector of 1xn
+                        % molFracPlotting - change the string to a vector of 1xn
                         tempmolFracPlotting = strsplit(locVal,{';',','}); 
                         tempmolFracPlotting = strrep(tempmolFracPlotting,' ','');
                         for i=1:size(tempmolFracPlotting,2)
                             storemolFracPlotting(1,i) = str2double(tempmolFracPlotting {i});
                         end
-                        % Store minWavenumber into the BAAMInfo structure
+                        % Store molFracPlotting into the BAAMInfo structure
                         fieldValues{expLoop} = storemolFracPlotting;
                     else
                         if ~isnan(str2double(locVal))
@@ -148,6 +168,7 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
                             || strcmpi(tempVar,'temperature')...
                             || strcmpi(tempVar,'pressureHigh')...
                             || strcmpi(tempVar,'pressureLow')...
+                            || strcmpi(tempVar,'pressureLowUpperBound')...
                             || strcmpi(tempVar,'voidFraction')...
                             || strcmpi(tempVar,'adiabaticConstant')...
                             || strcmpi(tempVar,'pumpEfficiency')...
@@ -155,6 +176,8 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
                             || strcmpi(tempVar,'molFracPlotting')...
                             || strcmpi(tempVar,'loadAdsorbentInfo')...
                             || strcmpi(tempVar,'filenameAdsorbentInfo')
+                        % Convert the user input into into boolean for
+                        % loadAdsorbentInfo
                         if strcmpi(tempVar,'loadAdsorbentInfo')
                             if strcmpi(fieldValues{expLoop},'yes') || strcmpi(fieldValues{expLoop},'Yes')
                                 fieldValues{expLoop} = true;
@@ -164,6 +187,8 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
                                 adsInfoStructFlag = true;
                             end
                         end
+                        % Convert the user input into into boolean for
+                        % plotFlag
                         if strcmpi(tempVar,'plotFlag')
                             if strcmpi(fieldValues{expLoop},'yes') || strcmpi(fieldValues{expLoop},'Yes')
                                 fieldValues{expLoop} = true;
@@ -173,8 +198,13 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
                         end
                         eval(['simInfo.',tempVar, '= fieldValues{expLoop};']);
                     else
+                        % If adsInfo is from user input, save the fields
+                        % into adsInfo structure
                         if adsInfoStructFlag
                             eval(['adsInfo.',tempVar, '= fieldValues{expLoop};']);
+                        % If adsInfo is from a file, no matter what is
+                        % loaded from the BAAMInfo file initialize the
+                        % structure to an empty one
                         else
                             adsInfo = [];
                         end

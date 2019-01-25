@@ -7,8 +7,7 @@
 % Year:     2019
 % MATLAB:   R2018b, Windows 64bit
 % Authors:  Vishal Subramanian Balashankar (VS)
-%           Ashwin Kumar Rajagopalan (AK)
-%          
+%           Ashwin Kumar Rajagopalan (AK)   
 %
 % Purpose:
 % The function BAAM simulates the batch adsorber analogue model proposed in
@@ -25,6 +24,7 @@
 % repository.
 %
 % Last modified:
+% - 2018-01-25, AK: Minor cosmetic changes
 % - 2018-01-13, AK: Added additional comment for discretization
 % - 2019-01-13, VS: Cosmetic changes incorporated
 % - 2019-01-12, AK: Finished major cleaning of the code and output
@@ -65,6 +65,7 @@ simulationStartTime = datetime('now');
 
 %% COMMAND OUTPUT WINDOW
 if ~silentFlag
+    disp(' ');
     disp('##########################################################################');
     disp('                  BAAM - Batch Adsorber Analogue Model');
     disp('        Developed by Laboratory of Advanced Seperation Processes');
@@ -90,6 +91,7 @@ pumpEfficiency = simInfo.pumpEfficiency; % Efficiency of the vacuum pump [-]
 temperature = simInfo.temperature; % Feed temperature [K]
 pressureHigh = simInfo.pressureHigh; % High pressure [bar]
 pressureLow = simInfo.pressureLow; % Low pressure [bar]
+pressureLowUpperBound = simInfo.pressureLowUpperBound; % Low pressure upper bound for simulation [bar]
 molFracFeed_A = simInfo.molFracFeed_A; % Feed mole fraction of component A [-]
 molarMass_A = simInfo.molarMass_A; % Molar mass of component A [g/mol]
 
@@ -142,9 +144,9 @@ pressureVector=(pressureHigh:-deltaPressure:pressureLow)';
 
 % PRESSURE MATRIX
 % Create a pressure vector for the low pressure that spans a range from
-% low pressure (pressureLow) to high pressure (pressureHigh).The pressure 
-% vector is in bar.
-pressureLowVector = pressureLow:0.001:(pressureHigh - 0.01);
+% low pressure (pressureLow) to upper bound of low pressure specifified
+% by the user. The pressure vector is in bar.
+pressureLowVector = pressureLow:0.001:(pressureLowUpperBound - 0.01);
 % Create a pressure vector for the intermediate pressure that spans a range
 % from low pressure (pressureLow+0.01 bar) to the high pressure
 % (pressureHigh - 0.01 bar).
@@ -433,16 +435,7 @@ for ii = 1:length(molFracPlotting)
         = evaluateDSLIsotherm (pressureForPlotting,molFracPlotting(ii));
 end
 
-% Get GIT commit ID and save it to the output Structure
-[status,cmdOut] = system('git rev-parse HEAD');
-% If command was successful
-if status == 0
-    % Save the first 7 characters of the GIT commit ID
-    commitId = cmdOut(1:7);
-end
-
 % Prepare the output structure
-BAAMOutput.commitId = commitId; % GIT commit ID
 BAAMOutput.adsInfo = adsInfo; % Adsorbent Info structure
 BAAMOutput.simInfo = simInfo; % Simulation Info structure
 BAAMOutput.outputBlowEvac = outputBlowEvac; % Output from simulateBlowEvac
@@ -466,9 +459,11 @@ if ~silentFlag
     disp('- Summary of the BAAM simulation results:')
     fprintf(' --> Maximum distance (95/90 Pu/Re) = %0.2f [-]\n',maxDistancePurityRecovery);
     fprintf(' --> Satisfy Constraints (1 - Yes, 0 - No) = %i\n',satisfyPurityRecovery);
-    fprintf(' --> Minimum Energy (BAAM) = %0.2f [kWh/tonne CO2]\n',minEnergyBAAM);
-    fprintf(' --> Minimum Energy (Full Model) = %0.2f [kWh/tonne CO2]\n',minEnergyFullModel);
-    fprintf(' --> Working Capacity (at minimum energy, BAAM) = %0.2f [mol CO2/m^3 ads.]\n',workingCapacity_MinEnergy);
+    if ~isempty(indexDistance9590)
+        fprintf(' --> Minimum Energy (BAAM) = %0.2f [kWh/tonne CO2]\n',minEnergyBAAM);
+        fprintf(' --> Minimum Energy (Full Model) = %0.2f [kWh/tonne CO2]\n',minEnergyFullModel);
+        fprintf(' --> Working Capacity (at minimum energy, BAAM) = %0.2f [mol CO2/m^3 ads.]\n',workingCapacity_MinEnergy);
+    end
     fprintf(' --> Computational time: %2.1f [s].',computationalTime); fprintf('\n');
     disp('##########################################################################');
 end
