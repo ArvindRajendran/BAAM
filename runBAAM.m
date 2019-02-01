@@ -21,6 +21,7 @@
 % SimulationResults. Refer to the README file for further information
 %
 % Last modified:
+% - 2019-02-01, AK: Integrated the plotting function
 % - 2019-01-25, AK: Added functionalities for loading adsorbent data from a
 %                   file, and integrated sanity checks for user input and
 %                   the model
@@ -110,7 +111,7 @@ function runBAAM(varargin)
         [simInfoIn,adsInfoIn] = checkOptionsBAAM(simInfo,adsInfo(ii));
 
         % Execute BAAM after the sanity check and obtain the final output
-        [BAAMOutput,~,~] = BAAM(simInfoIn,adsInfoIn,silentFlag);
+        [BAAMOutput] = BAAM(simInfoIn,adsInfoIn,silentFlag);
         % Save the output structure for each adsorbent as ADS_<counterId>
         eval(['outputStruct.ADS_',num2str(ii),' = BAAMOutput;']);
     end
@@ -132,6 +133,16 @@ function runBAAM(varargin)
     % Save the file in the SimulationResults folder
     saveFileName = ['BAAMOutput_',commitId,'_',datestr(datetime('now'),'ddmmyyyy_hhMMss')];
     save(['SimulationResults',filesep,saveFileName],'outputStruct')
+    % Check if plotting flag is enabled and based on that have a command
+    % line output for plotting
+    if outputStruct.ADS_1.simInfo.plotFlag 
+        if silentFlag
+            disp('- Plotting of BAAM results in progress...');
+        end
+        % Call the plotting function to plot BAAM results
+        plotBAAMOutput(outputStruct);
+    end
+        
     % Some command line output
     if silentFlag
         fprintf(' --> Results saved in %s.mat\n',saveFileName);

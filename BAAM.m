@@ -24,8 +24,9 @@
 % repository.
 %
 % Last modified:
-% - 2018-01-25, AK: Minor cosmetic changes
-% - 2018-01-13, AK: Added additional comment for discretization
+% - 2019-02-01, AK: Minor structural modifications
+% - 2019-01-25, AK: Minor cosmetic changes
+% - 2019-01-13, AK: Added additional comment for discretization
 % - 2019-01-13, VS: Cosmetic changes incorporated
 % - 2019-01-12, AK: Finished major cleaning of the code and output
 %                   structure and first functioning verion of the code.
@@ -59,7 +60,7 @@
 % changed back again. Search for harcoded and look at the original code)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [BAAMOutput, qAfLPPd,qBfLPPd]=BAAM(simInfo,adsInfo,silentFlag)
+function [BAAMOutput]=BAAM(simInfo,adsInfo,silentFlag)
 % START OF MAIN FUNCTION
 simulationStartTime = datetime('now');
 
@@ -218,7 +219,7 @@ for counterLow = 1:length(pressureLowVector)
     % would be the low pressure and mole fraction at the end of the
     % blowdown/evacuation step (outputBlowEvac(:,2) is the mole fraction)
     % outputPress - [MoleFracA SolidLoadingA SolidLoadingB MolesPressTotal]
-    outputPress = simulatePressurization(pressureLowVector(counterLow),outputBlowEvac(pressureLowIndex,2));
+    outputPress(counterLow,:) = simulatePressurization(pressureLowVector(counterLow),outputBlowEvac(pressureLowIndex,2));
 
     % Simulate the adsorption step starting from the final state of the
     % pressurization step with the goal of feeding the column with gas at
@@ -227,18 +228,22 @@ for counterLow = 1:length(pressureLowVector)
     % (outputPress(1))
     % outputAds - [molesAds_Total molesAds_Raffinate SolidLoadingA 
     % SolidLoadingB]
-    outputAds = simulateAdsorption(outputPress(1));
+    outputAds(counterLow,:) = simulateAdsorption(outputPress(counterLow,1));
+
+%     % If the current step pressure is equal to the low pressure then save
+%     % the solid phase loadings at that condition which would be the final
+%     % state of the colum at the end of the pressurization step and save it
+%     % to the outputPress structure
+%     if (pressureLowVector(counterLow) == pressureLow)
+%         solidPhaseLoading_FinalLPP_A = outputPress(counterLow,2);
+%         solidPhaseLoading_FinalLPP_B = outputPress(counterLow,3);
+%     end
     
     % Loop over entire intermediate pressure vector
     for counterInter = 1:length(pressureInterVector)
         %%% TO VISHAL: Why would the low pressure even be NaN???
         if ~(isnan(pressureInterGrid(counterInter,counterLow)) ...
                 || isnan(pressureLowGrid(1,counterLow)))
-            %%% TO VISHAL: What are these things used for?
-            if (pressureLowVector(counterLow) == pressureLow)
-                qAfLPPd = outputPress(1);
-                qBfLPPd = outputPress(2);
-            end
             % Find the index (in the output of the 
             % simulateBlowdownEvacuation function) of the pressure that 
             % corresponds to the current intermediate pressure value in the
@@ -270,7 +275,7 @@ for counterLow = 1:length(pressureLowVector)
             % intermediate to low pressure/Moles fed into the column in the
             % adsorption step of component A (outputAds(1)*molFracFeed_A): 
             % outputAds(1) - molesAds_Total
-            recoveryStep = (molesInterToLow_A/(outputAds(1)*molFracFeed_A))*100;
+            recoveryStep = (molesInterToLow_A/(outputAds(counterLow,1)*molFracFeed_A))*100;
             % Energy consumption (Blowdown) [kWh/tonne CO2. evac] - Energy
             % consumption (kWh) in the blowdown step per tonne of component
             % A obtained in the evacuation step (Eq. 17 in the original
@@ -304,9 +309,9 @@ for counterLow = 1:length(pressureLowVector)
             % difference in the moles of gas fed to the pressurization step
             % using the adsorption outlet.
             % Moles of gas in
-            numMolesIn = outputAds(1);
+            numMolesIn = outputAds(counterLow,1);
             % Moles of gas out
-            numMolesOut = (outputAds(2)-outputPress(4))...
+            numMolesOut = (outputAds(counterLow,2)-outputPress(counterLow,4))...
                             + (molesHighToInter_A + molesHighToInter_B)...
                             + (molesInterToLow_A + molesInterToLow_B);
             % Mass balance error

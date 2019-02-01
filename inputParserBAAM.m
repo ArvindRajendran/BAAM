@@ -18,6 +18,8 @@
 % needs more info, he/she can refer to the README file. 
 %
 % Last modified:
+% - 2019-02-01, AK: Minor cosmetic changes in the structure of the BAAMInfo
+%                   file
 % - 2019-01-25, AK: Minor cosmetic changes
 % - 2019-01-24, AK: Introduced header for this file
 %
@@ -55,76 +57,41 @@ function [simInfo,adsInfo] = inputParserBAAM(folder)
         fprintf(fid,'%% For more information regarding the fields below check the README file. \n\n');
         % Simulation info
         fprintf(fid,'%% I. SIMULATION INFO \n');
-        fprintf(fid,'%% PROCESS INFO\n');
-        fprintf(fid,'%% -> Feed Mole Fraction of Component A): molFracFeed_A = [0-1]\n');
         fprintf(fid,'molFracFeed_A = \n');
-        fprintf(fid,'%% -> Molar Mass of Component A: molarMass_A = [in g/mol]\n');
         fprintf(fid,'molarMass_A = \n');
-        fprintf(fid,'%% -> Feed Temperature: temperature = [in K]\n');
         fprintf(fid,'temperature = \n');
-        fprintf(fid,'%% -> High Pressure: pressureHigh = [in bar]\n');
         fprintf(fid,'pressureHigh = \n');
-        fprintf(fid,'%% -> Low Pressure: pressureLow = [in bar]\n');
         fprintf(fid,'pressureLow = \n');
-        fprintf(fid,'%% -> Low Pressure Upper Bound for Simulation: pressureLowUpperBound = [in bar]\n');
         fprintf(fid,'pressureLowUpperBound = \n');
-        fprintf(fid,'%% -> Bed Void Fraction: voidFraction = [0-1]\n');
         fprintf(fid,'voidFraction = \n');
-        fprintf(fid,'%% -> Adiabatic Constant of Gas: adiabaticConstant = [-]\n');
         fprintf(fid,'adiabaticConstant = \n');
-        fprintf(fid,'%% -> Efficiency of Vacuum Pump: pumpEfficiency = [0-1]\n');
         fprintf(fid,'pumpEfficiency = \n');
-        
-        fprintf(fid,'%% PLOTTING INFO\n');
-        fprintf(fid,'%% -> Boolean Flag after Simulation Run for Plotting (Yes/No): plotFlag = \n');
         fprintf(fid,'plotFlag = \n');
-        fprintf(fid,'%% -> Mole Fractions used for plotting: molFracPlotting = \n');
-        fprintf(fid,'%% -> This can be a series of mole fractions that would be used for plottting \n');
-        fprintf(fid,'%% -> For example: 0.15, 0.5, 0.75, 0.9 or 0.15; 0.5; 0.75; 0.9 \n');
         fprintf(fid,'molFracPlotting = \n\n');
-        
-        fprintf(fid,'%% -> Load Adsorbent Info from a File (Yes/No): loadAdsorbentInfo = \n');
-        fprintf(fid,'loadAdsorbentInfo = \n\n');
-        fprintf(fid,'%% -> Filename to Load Adsorbent Info: filenameAdsorbentInfo = \n');
-        fprintf(fid,'%% -> If not loaded from file, go down to enter adsorbentInfo = \n');
-        fprintf(fid,'filenameAdsorbentInfo = \n\n');
         
         % Adsorbent info
         fprintf(fid,'%% II. ADSORBENT INFO \n');
-        fprintf(fid,'%% *** User Input *** \n');
-        fprintf(fid,'%% -> Adsorbent Name: adsorbentName = \n');
+        fprintf(fid,'loadAdsorbentInfo = \n');
+        fprintf(fid,'filenameAdsorbentInfo = \n\n');
+        fprintf(fid,'%% *** User Input. Fill out the fields below if not loading from file. *** \n');
         fprintf(fid,'adsorbentName = \n');
-        fprintf(fid,'%% -> Adsorbent Density: adsorbentDensity = [in kg/m3]\n');
         fprintf(fid,'adsorbentDensity = \n');        
         % Isotherm parameters
         fprintf(fid,'%% ISOTHERM PARAMETERS\n');
-        % Component A
         fprintf(fid,'%% Component A\n');
-        fprintf(fid,'%% -> Site 1, Saturation Capacity: qSaturationSite1_A = [in mol/kg]\n');
         fprintf(fid,'qSaturationSite1_A = \n');
-        fprintf(fid,'%% -> Site 1, Adsorption Coefficient: adsorptionCoefficientSite1_A = [in m3/mol]\n');
         fprintf(fid,'adsorptionCoefficientSite1_A = \n');
-        fprintf(fid,'%% -> Site 1, Internal Energy: internalEnergySite1_A = [in J/mol]\n');
         fprintf(fid,'internalEnergySite1_A = \n');
-        fprintf(fid,'%% -> Site 2, Saturation Capacity: qSaturationSite2_A = [in mol/kg]\n');
         fprintf(fid,'qSaturationSite2_A = \n');
-        fprintf(fid,'%% -> Site 2, Adsorption Coefficient: adsorptionCoefficientSite2_A = [in m3/mol]\n');
         fprintf(fid,'adsorptionCoefficientSite2_A = \n');
-        fprintf(fid,'%% -> Site 2, Internal Energy: internalEnergySite2_A = [in J/mol]\n');
         fprintf(fid,'internalEnergySite2_A = \n\n');
         % Component B
         fprintf(fid,'%% Component B\n');
-        fprintf(fid,'%% -> Site 1, Saturation Capacity: qSaturationSite1_B = [in mol/kg]\n');
         fprintf(fid,'qSaturationSite1_B = \n');
-        fprintf(fid,'%% -> Site 1, Adsorption Coefficient: adsorptionCoefficientSite1_B = [in m3/mol]\n');
         fprintf(fid,'adsorptionCoefficientSite1_B = \n');
-        fprintf(fid,'%% -> Site 1, Internal Energy: internalEnergySite1_B = [in J/mol]\n');
         fprintf(fid,'internalEnergySite1_B = \n');
-        fprintf(fid,'%% -> Site 2, Saturation Capacity: qSaturationSite2_B = [in mol/kg]\n');
         fprintf(fid,'qSaturationSite2_B = \n');
-        fprintf(fid,'%% -> Site 2, Adsorption Coefficient: adsorptionCoefficientSite2_B = [in m3/mol]\n');
         fprintf(fid,'adsorptionCoefficientSite2_B = \n');
-        fprintf(fid,'%% -> Site 2, Internal Energy: internalEnergySite2_B = [in J/mol]\n');
         fprintf(fid,'internalEnergySite2_B = ');
         
         % Close file and ask the user to fill in the required options
