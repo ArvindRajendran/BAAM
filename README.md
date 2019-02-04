@@ -7,7 +7,8 @@
 				      		   BATCH ADSORBER ANALOGUE MODEL
                                    
 	
-						© 2019 University of Alberta, Canada
+					        Copyright (C) 2019 Arvind Rajendran
+						   University of Alberta, Canada
 
 					    Laboratory of Advanced Separation Processes
 						     Prof. Dr. Arvind Rajendran
@@ -115,5 +116,11 @@ Vishal Subramanian Balashankar, Ashwin Kumar Rajagopalan, Ruben de Pauw, Adolfo 
 * Dr. Ruben de Pauw
 * Dr. Adolfo M. Avila
 
-## DISCLAIMER
-The software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY. The authors do not take any responsibility for correctness or completeness of the software provided.
+## LICENSE
+Copyright (C) 2019 Arvind Rajendran
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
