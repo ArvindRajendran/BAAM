@@ -13,7 +13,7 @@
 					    Laboratory of Advanced Separation Processes
 						     Prof. Dr. Arvind Rajendran
 							Project: 
-					    Readme last updated: 03rd February 2019, AK
+					    Readme last updated: 04th February 2019, AK
 
 ## INTRODUCTION
 The function BAAM simulates the batch adsorber analogue model proposed in *Analysis of a Batch Adsorber Analogue for Rapid Screening of Adsorbents for Postcombustion CO2 Capture, doi*. This code simulates a two component system using the LPP cycle with the BAAM model. Component A is the component of interest (CO2 in the original article).
